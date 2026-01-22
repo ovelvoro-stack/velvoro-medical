@@ -1,0 +1,31 @@
+<form method="POST">
+  <input name="patient" placeholder="Patient Name" required>
+  <input name="age" placeholder="Age" required>
+  <input name="phone" placeholder="Phone">
+  
+  <select name="disease">
+    {% for d in diseases %}
+    <option>{{ d }}</option>
+    {% endfor %}
+  </select>
+
+  <input name="symptoms" placeholder="Symptoms">
+  <input name="bp" placeholder="BP">
+  <input name="sugar" placeholder="Sugar">
+  <input name="heart" placeholder="Heart Rate">
+
+  <input name="ai_risk" id="ai_risk" placeholder="AI Risk %" readonly>
+
+  <button type="button" onclick="scan()">AI Scan</button>
+  <button type="submit">Save</button>
+</form>
+
+<script>
+function scan(){
+ fetch("/api/ai-scan",{method:"POST"})
+ .then(r=>r.json())
+ .then(d=>document.getElementById("ai_risk").value=d.risk+"%");
+}
+</script>
+
+{% if success %}<p style="color:green">{{ success }}</p>{% endif %}

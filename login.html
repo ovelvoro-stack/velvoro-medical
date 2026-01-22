@@ -1,0 +1,7 @@
+<form method="POST">
+  <h2>Velvoro Medical</h2>
+  <input name="username" placeholder="doctor / staff" required>
+  <input name="code" placeholder="Login Code" required>
+  <button>Login</button>
+  {% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+</form>

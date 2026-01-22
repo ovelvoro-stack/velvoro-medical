@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Velvoro Medical - Doctor Dashboard</title>
+    <link rel="stylesheet" href="/static/medical_style.css">
+</head>
+<body>
+
+<h2>Doctor Dashboard</h2>
+
+<table border="1">
+<tr>
+    <th>Time</th>
+    <th>Name</th>
+    <th>Age</th>
+    <th>Condition</th>
+    <th>Protocol</th>
+    <th>Medicine</th>
+    <th>Status</th>
+</tr>
+
+{% for r in rows %}
+<tr>
+    <td>{{ r[0] }}</td>
+    <td>{{ r[1] }}</td>
+    <td>{{ r[3] }}</td>
+    <td>{{ r[7] }}</td>
+    <td>{{ r[9] }}</td>
+    <td>{{ r[10] }}</td>
+    <td>{{ r[12] }}</td>
+</tr>
+{% endfor %}
+
+</table>
+
+</body>
+</html>
