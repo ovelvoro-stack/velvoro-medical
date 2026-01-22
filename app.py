@@ -1,144 +1,147 @@
 from flask import Flask, request, render_template_string
-import json, os
 from datetime import datetime
+import os
+import csv
 
 app = Flask(__name__)
 
-DB_FILE = "medical_db.json"
-UPLOAD_FOLDER = "uploads"
+# ================= STORAGE FILES =================
+DOCTOR_FILE = "doctor_records.csv"
+ADMIN_FILE = "admin_records.csv"
 
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+HEADERS = [
+    "DateTime", "DoctorName", "PatientName", "Phone",
+    "Age", "BP", "Sugar", "Stress",
+    "Conditions", "Medicines", "DoctorNotes", "ReportFile"
+]
 
-if not os.path.exists(DB_FILE):
-    with open(DB_FILE, "w") as f:
-        json.dump([], f)
+def init_files():
+    for file in [DOCTOR_FILE, ADMIN_FILE]:
+        if not os.path.exists(file):
+            with open(file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(HEADERS)
 
-# ---------------- AI ENGINE ----------------
-def ai_engine(bp, sugar, sleep, stress):
+init_files()
+
+# ================= AI ENGINE =================
+def ai_engine(bp, sugar, stress):
     conditions = []
     medicines = []
 
     try:
-        bp = int(bp)
-        sugar = int(sugar)
+        s, d = bp.split("/")
+        s, d = int(s), int(d)
+        if s >= 140 or d >= 90:
+            conditions.append("High BP")
+            medicines.append("Amlodipine class BP medicine (doctor to finalize dose)")
+        else:
+            conditions.append("Normal BP")
     except:
-        return ["Invalid values"], []
+        conditions.append("Invalid BP")
 
-    if bp > 140:
-        conditions.append("High Blood Pressure")
-        medicines.append("BP monitoring + lifestyle changes")
-
-    if sugar > 180:
-        conditions.append("Diabetes")
-        medicines.append("Sugar control diet / medication")
-
-    if sleep == "No":
-        conditions.append("Sleep Disorder")
+    try:
+        sugar = int(sugar)
+        if sugar >= 126:
+            conditions.append("High Sugar")
+            medicines.append("Metformin class medicine (doctor discretion)")
+        else:
+            conditions.append("Normal Sugar")
+    except:
+        conditions.append("Invalid Sugar")
 
     if stress == "Yes":
-        conditions.append("Stress Related Issue")
+        conditions.append("Stress")
+        medicines.append("Stress management, yoga, meditation ± anxiolytic (doctor decides)")
+
+    if not medicines:
+        medicines.append("Lifestyle advice & monitoring")
 
     return conditions, medicines
 
-# ---------------- HOME ----------------
-@app.route("/", methods=["GET", "POST"])
-def index():
-    ai_conditions = []
-    ai_medicines = []
-    report_info = []
-
-    if request.method == "POST":
-        doctor = request.form["doctor"]
-        patient = request.form["patient"]
-        phone = request.form["phone"]
-        bp = request.form["bp"]
-        sugar = request.form["sugar"]
-        sleep = request.form["sleep"]
-        stress = request.form["stress"]
-        doctor_notes = request.form["doctor_notes"]
-
-        ai_conditions, ai_medicines = ai_engine(bp, sugar, sleep, stress)
-
-        file = request.files.get("report")
-        if file and file.filename:
-            file.save(os.path.join(UPLOAD_FOLDER, file.filename))
-            report_info.append("Medical report uploaded: " + file.filename)
-
-        record = {
-            "date": str(datetime.now()),
-            "doctor": doctor,
-            "patient": patient,
-            "phone": phone,
-            "ai_conditions": ai_conditions,
-            "ai_medicines": ai_medicines,
-            "doctor_notes": doctor_notes,
-            "final_decision": "Doctor Approved"
-        }
-
-        with open(DB_FILE) as f:
-            data = json.load(f)
-        data.append(record)
-        with open(DB_FILE, "w") as f:
-            json.dump(data, f, indent=2)
-
-    return render_template_string("""
+# ================= UI =================
+HTML = """
 <h2>Velvoro Medical AI</h2>
-
 <form method="post" enctype="multipart/form-data">
+Doctor Name:<br><input name="doctor" required><br>
+Patient Name:<br><input name="patient" required><br>
+Phone Number:<br><input name="phone" required><br>
+Age:<br><input name="age"><br>
+BP (120/80):<br><input name="bp"><br>
+Sugar:<br><input name="sugar"><br>
+Stress:
+<select name="stress"><option>No</option><option>Yes</option></select><br><br>
 
-<h3>Doctor Details</h3>
-Doctor Name: <input name="doctor" required><br><br>
+Doctor Notes:<br>
+<textarea name="notes" style="width:300px;height:80px;"></textarea><br>
 
-<h3>Patient Details</h3>
-Patient Name: <input name="patient" required><br><br>
-Phone Number: <input name="phone" required><br><br>
-
-BP: <input name="bp"><br><br>
-Sugar: <input name="sugar"><br><br>
-
-Sleep Proper?
-<select name="sleep">
-<option>Yes</option><option>No</option>
-</select><br><br>
-
-Stress?
-<select name="stress">
-<option>No</option><option>Yes</option>
-</select><br><br>
-
-Upload Report:
+Upload Report:<br>
 <input type="file" name="report"><br><br>
 
-<h3>Doctor Notes (A–Z)</h3>
-<textarea name="doctor_notes" rows="6" cols="60"
-placeholder="Doctor can write full notes here..."></textarea><br><br>
-
-<button type="submit">Run AI + Save Record</button>
-
+<button type="submit">Run AI + Save</button>
 </form>
 
+{% if result %}
 <hr>
-
-<h3>AI Draft (For Doctor Support)</h3>
 <b>Conditions:</b>
-<ul>{% for c in ai_conditions %}<li>{{c}}</li>{% endfor %}</ul>
+<ul>{% for c in result.conditions %}<li>{{c}}</li>{% endfor %}</ul>
 
 <b>Medicines:</b>
-<ul>{% for m in ai_medicines %}<li>{{m}}</li>{% endfor %}</ul>
+<ul>{% for m in result.medicines %}<li>{{m}}</li>{% endfor %}</ul>
 
-<h3>Report Intelligence</h3>
-<ul>{% for r in report_info %}<li>{{r}}</li>{% endfor %}</ul>
-
-<p style="color:red;">
+<b>Saved Successfully ✔</b><br><br>
+<span style="color:red">
 AI assisted system only. Final decision by registered doctor.
-</p>
-""",
-ai_conditions=ai_conditions,
-ai_medicines=ai_medicines,
-report_info=report_info
-)
+</span>
+{% endif %}
+"""
 
-# ---------------- RUN ----------------
+# ================= ROUTE =================
+@app.route("/", methods=["GET", "POST"])
+def index():
+    if request.method == "POST":
+        data = {
+            "dt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "doctor": request.form["doctor"],
+            "patient": request.form["patient"],
+            "phone": request.form["phone"],
+            "age": request.form.get("age", ""),
+            "bp": request.form.get("bp", ""),
+            "sugar": request.form.get("sugar", ""),
+            "stress": request.form.get("stress"),
+            "notes": request.form.get("notes", "")
+        }
+
+        report_name = ""
+        file = request.files.get("report")
+        if file and file.filename:
+            os.makedirs("uploads", exist_ok=True)
+            report_name = datetime.now().strftime("%Y%m%d%H%M%S_") + file.filename
+            file.save(os.path.join("uploads", report_name))
+
+        conditions, medicines = ai_engine(data["bp"], data["sugar"], data["stress"])
+
+        row = [
+            data["dt"], data["doctor"], data["patient"], data["phone"],
+            data["age"], data["bp"], data["sugar"], data["stress"],
+            ", ".join(conditions), ", ".join(medicines),
+            data["notes"], report_name
+        ]
+
+        # SAVE FOR DOCTOR
+        with open(DOCTOR_FILE, "a", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(row)
+
+        # SAVE FOR ADMIN (VELVORO)
+        with open(ADMIN_FILE, "a", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(row)
+
+        return render_template_string(
+            HTML,
+            result={"conditions": conditions, "medicines": medicines}
+        )
+
+    return render_template_string(HTML, result=None)
+
 if __name__ == "__main__":
     app.run(debug=True)
