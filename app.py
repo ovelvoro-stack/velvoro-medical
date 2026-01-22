@@ -1,147 +1,233 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, request, redirect, url_for, session, render_template_string
 from datetime import datetime
-import os
-import csv
+import csv, os
 
 app = Flask(__name__)
+app.secret_key = "VELVORO_SECURE_2026"
 
-# ================= STORAGE FILES =================
-DOCTOR_FILE = "doctor_records.csv"
-ADMIN_FILE = "admin_records.csv"
+# =========================
+# LOGIN CREDENTIALS
+# =========================
+DOCTORS = {
+    "doctor1": "1234",   # Doctor ID : PIN
+}
+
+DATA_FILE = "doctor_records.csv"
 
 HEADERS = [
-    "DateTime", "DoctorName", "PatientName", "Phone",
-    "Age", "BP", "Sugar", "Stress",
-    "Conditions", "Medicines", "DoctorNotes", "ReportFile"
+    "DateTime","DoctorID","DoctorName","PatientName","Phone",
+    "Age","BP","Sugar","Stress","DoctorNotes"
 ]
 
-def init_files():
-    for file in [DOCTOR_FILE, ADMIN_FILE]:
-        if not os.path.exists(file):
-            with open(file, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(HEADERS)
+if not os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "w", newline="", encoding="utf-8") as f:
+        csv.writer(f).writerow(HEADERS)
 
-init_files()
-
-# ================= AI ENGINE =================
-def ai_engine(bp, sugar, stress):
-    conditions = []
-    medicines = []
-
-    try:
-        s, d = bp.split("/")
-        s, d = int(s), int(d)
-        if s >= 140 or d >= 90:
-            conditions.append("High BP")
-            medicines.append("Amlodipine class BP medicine (doctor to finalize dose)")
-        else:
-            conditions.append("Normal BP")
-    except:
-        conditions.append("Invalid BP")
-
-    try:
-        sugar = int(sugar)
-        if sugar >= 126:
-            conditions.append("High Sugar")
-            medicines.append("Metformin class medicine (doctor discretion)")
-        else:
-            conditions.append("Normal Sugar")
-    except:
-        conditions.append("Invalid Sugar")
-
-    if stress == "Yes":
-        conditions.append("Stress")
-        medicines.append("Stress management, yoga, meditation ± anxiolytic (doctor decides)")
-
-    if not medicines:
-        medicines.append("Lifestyle advice & monitoring")
-
-    return conditions, medicines
-
-# ================= UI =================
-HTML = """
-<h2>Velvoro Medical AI</h2>
-<form method="post" enctype="multipart/form-data">
-Doctor Name:<br><input name="doctor" required><br>
-Patient Name:<br><input name="patient" required><br>
-Phone Number:<br><input name="phone" required><br>
-Age:<br><input name="age"><br>
-BP (120/80):<br><input name="bp"><br>
-Sugar:<br><input name="sugar"><br>
-Stress:
-<select name="stress"><option>No</option><option>Yes</option></select><br><br>
-
-Doctor Notes:<br>
-<textarea name="notes" style="width:300px;height:80px;"></textarea><br>
-
-Upload Report:<br>
-<input type="file" name="report"><br><br>
-
-<button type="submit">Run AI + Save</button>
-</form>
-
-{% if result %}
-<hr>
-<b>Conditions:</b>
-<ul>{% for c in result.conditions %}<li>{{c}}</li>{% endfor %}</ul>
-
-<b>Medicines:</b>
-<ul>{% for m in result.medicines %}<li>{{m}}</li>{% endfor %}</ul>
-
-<b>Saved Successfully ✔</b><br><br>
-<span style="color:red">
-AI assisted system only. Final decision by registered doctor.
-</span>
-{% endif %}
+# =========================
+# CORPORATE BASE TEMPLATE
+# =========================
+BASE_CSS = """
+<style>
+body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #f4f6f9;
+    margin: 0;
+}
+.header {
+    background: #0b3c5d;
+    color: white;
+    padding: 15px 30px;
+    font-size: 22px;
+    font-weight: 600;
+}
+.container {
+    max-width: 900px;
+    margin: 30px auto;
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+h2 {
+    color: #0b3c5d;
+    border-bottom: 2px solid #e0e0e0;
+    padding-bottom: 10px;
+}
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: 600;
+}
+input, select, textarea {
+    width: 100%;
+    padding: 10px;
+    margin-top: 6px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+}
+textarea { height: 120px; }
+button {
+    margin-top: 20px;
+    padding: 12px 20px;
+    background: #0b3c5d;
+    color: white;
+    border: none;
+    font-size: 16px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+button:hover {
+    background: #092f49;
+}
+.footer {
+    text-align: center;
+    font-size: 13px;
+    color: #777;
+    margin-top: 40px;
+}
+.error {
+    color: red;
+    margin-top: 15px;
+}
+.logout {
+    float: right;
+    font-size: 14px;
+}
+.logout a {
+    color: white;
+    text-decoration: none;
+}
+</style>
 """
 
-# ================= ROUTE =================
-@app.route("/", methods=["GET", "POST"])
-def index():
+# =========================
+# LOGIN PAGE
+# =========================
+LOGIN_HTML = BASE_CSS + """
+<div class="header">
+    Velvoro Medical AI – Doctor Login
+</div>
+
+<div class="container">
+    <h2>Secure Doctor Access</h2>
+
+    <form method="post">
+        <label>Doctor ID</label>
+        <input name="doctor_id" required>
+
+        <label>PIN</label>
+        <input name="pin" type="password" required>
+
+        <button type="submit">Login</button>
+    </form>
+
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+</div>
+
+<div class="footer">
+    © 2026 Velvoro Software Solution – Medical AI System
+</div>
+"""
+
+# =========================
+# MEDICAL FORM PAGE
+# =========================
+APP_HTML = BASE_CSS + """
+<div class="header">
+    Velvoro Medical AI
+    <div class="logout"><a href="/logout">Logout</a></div>
+</div>
+
+<div class="container">
+    <h2>Patient Consultation Panel</h2>
+
+    <form method="post">
+        <label>Doctor Name</label>
+        <input name="doctor_name" required>
+
+        <label>Patient Name</label>
+        <input name="patient_name" required>
+
+        <label>Phone Number</label>
+        <input name="phone" required>
+
+        <label>Age</label>
+        <input name="age">
+
+        <label>BP</label>
+        <input name="bp" placeholder="120/80">
+
+        <label>Sugar</label>
+        <input name="sugar">
+
+        <label>Stress Level</label>
+        <select name="stress">
+            <option>No</option>
+            <option>Yes</option>
+        </select>
+
+        <label>Doctor Notes</label>
+        <textarea name="notes"></textarea>
+
+        <button type="submit">Save Record</button>
+    </form>
+</div>
+
+<div class="footer">
+    This system is confidential & for authorized doctors only.
+</div>
+"""
+
+# =========================
+# ROUTES
+# =========================
+@app.route("/", methods=["GET","POST"])
+def login():
     if request.method == "POST":
-        data = {
-            "dt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "doctor": request.form["doctor"],
-            "patient": request.form["patient"],
-            "phone": request.form["phone"],
-            "age": request.form.get("age", ""),
-            "bp": request.form.get("bp", ""),
-            "sugar": request.form.get("sugar", ""),
-            "stress": request.form.get("stress"),
-            "notes": request.form.get("notes", "")
-        }
+        did = request.form["doctor_id"]
+        pin = request.form["pin"]
 
-        report_name = ""
-        file = request.files.get("report")
-        if file and file.filename:
-            os.makedirs("uploads", exist_ok=True)
-            report_name = datetime.now().strftime("%Y%m%d%H%M%S_") + file.filename
-            file.save(os.path.join("uploads", report_name))
+        if did in DOCTORS and DOCTORS[did] == pin:
+            session["doctor"] = did
+            return redirect("/app")
+        else:
+            return render_template_string(LOGIN_HTML, error="Invalid Doctor ID or PIN")
 
-        conditions, medicines = ai_engine(data["bp"], data["sugar"], data["stress"])
+    return render_template_string(LOGIN_HTML)
 
-        row = [
-            data["dt"], data["doctor"], data["patient"], data["phone"],
-            data["age"], data["bp"], data["sugar"], data["stress"],
-            ", ".join(conditions), ", ".join(medicines),
-            data["notes"], report_name
-        ]
+@app.route("/app", methods=["GET","POST"])
+def app_page():
+    if "doctor" not in session:
+        return redirect("/")
 
-        # SAVE FOR DOCTOR
-        with open(DOCTOR_FILE, "a", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(row)
+    if request.method == "POST":
+        with open(DATA_FILE, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                datetime.now().strftime("%Y-%m-%d %H:%M"),
+                session["doctor"],
+                request.form["doctor_name"],
+                request.form["patient_name"],
+                request.form["phone"],
+                request.form["age"],
+                request.form["bp"],
+                request.form["sugar"],
+                request.form["stress"],
+                request.form["notes"]
+            ])
+        return redirect("/app")
 
-        # SAVE FOR ADMIN (VELVORO)
-        with open(ADMIN_FILE, "a", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(row)
+    return render_template_string(APP_HTML)
 
-        return render_template_string(
-            HTML,
-            result={"conditions": conditions, "medicines": medicines}
-        )
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
 
-    return render_template_string(HTML, result=None)
-
+# =========================
+# RUN
+# =========================
 if __name__ == "__main__":
     app.run(debug=True)
