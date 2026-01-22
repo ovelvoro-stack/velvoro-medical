@@ -1,189 +1,144 @@
 from flask import Flask, request, render_template_string
-from openpyxl import Workbook, load_workbook
-import os
+import json, os
 from datetime import datetime
 
 app = Flask(__name__)
 
-EXCEL_FILE = "patients_data.xlsx"
+DB_FILE = "medical_db.json"
+UPLOAD_FOLDER = "uploads"
 
-# ------------------ Excel Setup ------------------
-if not os.path.exists(EXCEL_FILE):
-    wb = Workbook()
-    ws = wb.active
-    ws.append([
-        "Date", "Doctor", "Patient", "Age", "Phone",
-        "BP", "Sugar", "Sleep", "Stress", "Symptoms",
-        "AI Conditions", "AI Medicine Draft", "Doctor Decision"
-    ])
-    wb.save(EXCEL_FILE)
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
-# ------------------ AI Decision Engine ------------------
-def ai_decision(bp, sugar, sleep, stress):
+if not os.path.exists(DB_FILE):
+    with open(DB_FILE, "w") as f:
+        json.dump([], f)
+
+# ---------------- AI ENGINE ----------------
+def ai_engine(bp, sugar, sleep, stress):
     conditions = []
     medicines = []
 
-    # BP logic
     try:
-        sys, dia = map(int, bp.split("/"))
-        if sys >= 140 or dia >= 90:
-            conditions.append("High BP")
-            medicines.append("Reduce salt, BP monitoring, consult physician")
-        elif sys >= 130:
-            conditions.append("Borderline BP")
-            medicines.append("Daily walking, BP monitoring")
-    except:
-        conditions.append("Invalid BP")
-        medicines.append("Enter BP correctly (example 120/80)")
-
-    # Sugar logic
-    try:
+        bp = int(bp)
         sugar = int(sugar)
-        if sugar >= 126:
-            conditions.append("Diabetes")
-            medicines.append("Metformin 500mg once daily")
-        elif sugar >= 100:
-            conditions.append("Pre-Diabetes")
-            medicines.append("Low sugar diet, exercise")
     except:
-        pass
+        return ["Invalid values"], []
 
-    # Sleep / Stress
-    if sleep == "Yes":
+    if bp > 140:
+        conditions.append("High Blood Pressure")
+        medicines.append("BP monitoring + lifestyle changes")
+
+    if sugar > 180:
+        conditions.append("Diabetes")
+        medicines.append("Sugar control diet / medication")
+
+    if sleep == "No":
         conditions.append("Sleep Disorder")
-        medicines.append("Sleep hygiene, reduce screen time")
 
     if stress == "Yes":
         conditions.append("Stress Related Issue")
-        medicines.append("Yoga, meditation, stress management")
-
-    if not conditions:
-        conditions.append("No major risk detected")
-        medicines.append("Healthy lifestyle")
 
     return conditions, medicines
 
-# ------------------ Main Route ------------------
+# ---------------- HOME ----------------
 @app.route("/", methods=["GET", "POST"])
 def index():
     ai_conditions = []
     ai_medicines = []
-    doctor_decision = ""
+    report_info = []
 
     if request.method == "POST":
-        doctor = request.form.get("doctor")
-        name = request.form.get("name")
-        age = request.form.get("age")
-        phone = request.form.get("phone")
-        bp = request.form.get("bp")
-        sugar = request.form.get("sugar")
-        sleep = request.form.get("sleep")
-        stress = request.form.get("stress")
-        symptoms = request.form.get("symptoms")
-        action = request.form.get("action")
+        doctor = request.form["doctor"]
+        patient = request.form["patient"]
+        phone = request.form["phone"]
+        bp = request.form["bp"]
+        sugar = request.form["sugar"]
+        sleep = request.form["sleep"]
+        stress = request.form["stress"]
+        doctor_notes = request.form["doctor_notes"]
 
-        ai_conditions, ai_medicines = ai_decision(bp, sugar, sleep, stress)
+        ai_conditions, ai_medicines = ai_engine(bp, sugar, sleep, stress)
 
-        if action:
-            doctor_decision = action
+        file = request.files.get("report")
+        if file and file.filename:
+            file.save(os.path.join(UPLOAD_FOLDER, file.filename))
+            report_info.append("Medical report uploaded: " + file.filename)
 
-            wb = load_workbook(EXCEL_FILE)
-            ws = wb.active
-            ws.append([
-                datetime.now().strftime("%Y-%m-%d %H:%M"),
-                doctor, name, age, phone,
-                bp, sugar, sleep, stress, symptoms,
-                ", ".join(ai_conditions),
-                ", ".join(ai_medicines),
-                doctor_decision
-            ])
-            wb.save(EXCEL_FILE)
+        record = {
+            "date": str(datetime.now()),
+            "doctor": doctor,
+            "patient": patient,
+            "phone": phone,
+            "ai_conditions": ai_conditions,
+            "ai_medicines": ai_medicines,
+            "doctor_notes": doctor_notes,
+            "final_decision": "Doctor Approved"
+        }
+
+        with open(DB_FILE) as f:
+            data = json.load(f)
+        data.append(record)
+        with open(DB_FILE, "w") as f:
+            json.dump(data, f, indent=2)
 
     return render_template_string("""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Velvoro Medical AI</title>
-</head>
-<body>
-<h2>New Patient – Clinical Entry</h2>
+<h2>Velvoro Medical AI</h2>
 
-<form method="post">
-Doctor Name:<br>
-<input name="doctor" required><br><br>
+<form method="post" enctype="multipart/form-data">
 
-Patient Name:<br>
-<input name="name" required><br><br>
+<h3>Doctor Details</h3>
+Doctor Name: <input name="doctor" required><br><br>
 
-Age:<br>
-<input name="age"><br><br>
+<h3>Patient Details</h3>
+Patient Name: <input name="patient" required><br><br>
+Phone Number: <input name="phone" required><br><br>
 
-Phone:<br>
-<input name="phone"><br><br>
+BP: <input name="bp"><br><br>
+Sugar: <input name="sugar"><br><br>
 
-BP (example 120/80):<br>
-<input name="bp"><br><br>
-
-Sugar:<br>
-<input name="sugar"><br><br>
-
-Sleep problem?<br>
+Sleep Proper?
 <select name="sleep">
-<option>No</option>
-<option>Yes</option>
+<option>Yes</option><option>No</option>
 </select><br><br>
 
-Stress?<br>
+Stress?
 <select name="stress">
-<option>No</option>
-<option>Yes</option>
+<option>No</option><option>Yes</option>
 </select><br><br>
 
-Symptoms:<br>
-<textarea name="symptoms"></textarea><br><br>
+Upload Report:
+<input type="file" name="report"><br><br>
 
-<button type="submit">Run AI Draft</button>
+<h3>Doctor Notes (A–Z)</h3>
+<textarea name="doctor_notes" rows="6" cols="60"
+placeholder="Doctor can write full notes here..."></textarea><br><br>
 
-{% if ai_conditions %}
-<hr>
-<h3>AI Draft (For Doctor Review)</h3>
+<button type="submit">Run AI + Save Record</button>
 
-<b>Possible Conditions:</b>
-<ul>
-{% for c in ai_conditions %}
-<li>{{c}}</li>
-{% endfor %}
-</ul>
-
-<b>AI Suggested Medicines (Draft):</b>
-<ul>
-{% for m in ai_medicines %}
-<li>{{m}}</li>
-{% endfor %}
-</ul>
-
-<button name="action" value="Approved">Approve</button>
-<button name="action" value="Rejected">Reject</button>
-
-<p style="color:red">
-AI is advisory only. Final decision by registered doctor.
-</p>
-
-{% if doctor_decision %}
-<p style="color:green">
-Doctor Decision: {{doctor_decision}}
-</p>
-{% endif %}
-{% endif %}
 </form>
-</body>
-</html>
-""",
-    ai_conditions=ai_conditions,
-    ai_medicines=ai_medicines,
-    doctor_decision=doctor_decision
-    )
 
-# ------------------ Run ------------------
+<hr>
+
+<h3>AI Draft (For Doctor Support)</h3>
+<b>Conditions:</b>
+<ul>{% for c in ai_conditions %}<li>{{c}}</li>{% endfor %}</ul>
+
+<b>Medicines:</b>
+<ul>{% for m in ai_medicines %}<li>{{m}}</li>{% endfor %}</ul>
+
+<h3>Report Intelligence</h3>
+<ul>{% for r in report_info %}<li>{{r}}</li>{% endfor %}</ul>
+
+<p style="color:red;">
+AI assisted system only. Final decision by registered doctor.
+</p>
+""",
+ai_conditions=ai_conditions,
+ai_medicines=ai_medicines,
+report_info=report_info
+)
+
+# ---------------- RUN ----------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=True)
